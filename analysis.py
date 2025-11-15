@@ -129,20 +129,21 @@ class BettingAdvisor:
     def _initialize_default_ratings(self):
         """Initialize ratings for common NFL teams (based on 2024 performance)"""
         # template, prolly use historical data for actual elo ratings later on in production
-        nfl_ratings = {
-            "Kansas City Chiefs": 1650,
-            "Buffalo Bills": 1620,
-            "San Francisco 49ers": 1640,
-            "Dallas Cowboys": 1580,
-            "Baltimore Ravens": 1630,
-            "Detroit Lions": 1610,
-            "Philadelphia Eagles": 1600,
-            "Miami Dolphins": 1590,
-            "Los Angeles Rams": 1560,
-            "Green Bay Packers": 1570,
+        nba_ratings = {
+            "Minnesota TimberWolves": 1650,
+            "Denver Nuggets": 1620,
+            "Cleveland Cavaliers": 1640,
+            "Toronto Raptors": 1580,
+            "Memphis Grizzlies": 1630,
+            "Indiana Pacers": 1610,
+            "Oklahoma City Thunder": 1600,
+            "Charlotte Hornets": 1590,
+            "Los Angeles Lakers": 1560,
+            "Milwaukee Bucks": 1570,
         }
         
-        for team, rating in nfl_ratings.items():
+        
+        for team, rating in nba_ratings.items():
             self.elo.initialize_team(team, rating)
         
     def american_to_decimal(self, american_odds: int) -> float:
