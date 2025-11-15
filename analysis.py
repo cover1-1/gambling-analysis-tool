@@ -177,7 +177,7 @@ class BettingAdvisor:
         ev = (win_prob * win_amount) - ((1 - win_prob) * loss_amount)
         return ev
     
-    def fetch_odds_api(self, sport: str = "americanfootball_nfl", 
+    def fetch_odds_api(self, sport: str = "basketball_nba", 
                        regions: str = "us", markets: str = "h2h,spreads", 
                        api_key: str = None) -> List[Game]:
         """
