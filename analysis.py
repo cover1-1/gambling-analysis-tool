@@ -181,8 +181,8 @@ class BettingAdvisor:
                        regions: str = "us", markets: str = "h2h,spreads", 
                        api_key: str = None) -> List[Game]:
         """
-        Fetch odds from The Odds API (requires API key)
-        Get your free API key at: https://the-odds-api.com/
+        Fetch odds from The Odds API 
+
         
         Args:
             sport: Sport key (e.g., 'americanfootball_nfl', 'basketball_nba')
@@ -647,5 +647,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
