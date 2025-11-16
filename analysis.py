@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import statistics
 import math
+from ollama import chat, ChatResponse
 
 @dataclass
 class Bet:
@@ -130,16 +131,36 @@ class BettingAdvisor:
         """Initialize ratings for common NFL teams (based on 2024 performance)"""
         # template, prolly use historical data for actual elo ratings later on in production
         nba_ratings = {
-            "Minnesota TimberWolves": 1650,
-            "Denver Nuggets": 1620,
-            "Cleveland Cavaliers": 1640,
-            "Toronto Raptors": 1580,
-            "Memphis Grizzlies": 1630,
-            "Indiana Pacers": 1610,
-            "Oklahoma City Thunder": 1600,
-            "Charlotte Hornets": 1590,
-            "Los Angeles Lakers": 1560,
-            "Milwaukee Bucks": 1570,
+            "Oklahoma City Thunder":1750,
+            "Denver Nuggets": 1690,
+            "Detroit Pistons" : 1660,
+            "New York Knicks" : 1650,
+            "Cleveland Cavaliers":1640,
+            "San Antonio Spurs" : 1630,
+            "Houston Rockets" : 1620,
+            "Los Angeles Lakers" : 1610,
+            "Minnesota Timberwolves": 1600,
+            "Miami Heat":1550,
+            "Milwaukee Bucks":1540,
+            "Chicago Bulls": 1530,
+            "Philadelphia 76ers":1520,
+            "Golden State Warriors":1510,
+            "Portland Trail Blazers":1500,
+            "Atlanta Hawks":1490,
+            "Toronto Raptors":1480,
+            "Boston Celtics":1470,
+            "Phoenix Suns":1460,
+            "Orlando Magic":1450,
+            "Memphis Grizzlies":1425,
+            "LA Clippers":1420,
+            "Charlotte Hornets": 1420,
+            "Sacramento Kings":1410,
+            "Dallas Mavericks":1400,
+            "Utah Jazz":1390,
+            "New Orleans Pelicans":1380,
+            "Brooklyn Nets":1370,
+            "Indiana Pacers" : 1330,
+            "Washington Wizards":1320
         }
         
         
@@ -179,7 +200,7 @@ class BettingAdvisor:
     
     def fetch_odds_api(self, sport: str = "basketball_nba", 
                        regions: str = "us", markets: str = "h2h,spreads", 
-                       api_key: str = None) -> List[Game]:
+                       api_key: str = "ef3bb5fc3d4f3207ee38ae1987ab43cf") -> List[Game]:
         """
         Fetch odds from The Odds API 
 
@@ -342,7 +363,8 @@ class BettingAdvisor:
     
     def analyze_with_ai(self, game: Game, odds: List[Bet], elo_prediction: Optional[Dict] = None) -> Dict:
         """
-        Use Claude API to analyze game and provide insights
+        
+        Using Ollama locally to analyze game
         Note: Still needs a lot of work
         """
         
@@ -392,20 +414,24 @@ Provide analysis in JSON format with these fields:
 
 Return ONLY valid JSON, no other text."""
 
-        try:
-            response = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 1000,
-                    "messages": [{"role": "user", "content": prompt}]
-                }
-            )
-            
-            data = response.json()
-            text = "".join([c["text"] for c in data["content"] if c["type"] == "text"])
-            return json.loads(text.strip())
+        try: 
+            response : ChatResponse = chat(model='gemma3:4b', messages=[{
+                'role':'user',
+                'content':prompt,
+            },
+            ])
+            text = response.message.content.strip()
+            if text.startswith('```'):
+                text = text.split('```')[1]
+                if text.startswith('json'):
+                    text = text[4:]
+                text = text.strip()
+            analysis = json.loads(text)
+            return analysis
+
+     #       data = response.json()
+     #       text = "".join([c["text"] for c in data["content"] if c["type"] == "text"])
+     #       return json.loads(text.strip())
             
         except Exception as e:
             return {"error": f"AI analysis failed: {str(e)}"}
