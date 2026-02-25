@@ -2,10 +2,11 @@ import json
 import requests
 from dataclasses import dataclass
 from typing import List, Dict, Optional
-from datetime import datetime
 import statistics
 import math
 from ollama import chat, ChatResponse
+import datetime
+import os
 
 @dataclass
 class Bet:
@@ -103,6 +104,7 @@ class EloRatingSystem:
             "rating_change": rating_change
         }
     
+    
     def initialize_team(self, team: str, rating: float = None):
         """Initialize or set a team's rating"""
         if rating is None:
@@ -113,6 +115,64 @@ class EloRatingSystem:
         """Get top N teams by rating"""
         sorted_teams = sorted(self.ratings.items(), key=lambda x: x[1], reverse=True)
         return sorted_teams[:n]
+    def update_elo_from_recent(self, sport: str="basketball_nba", days_back: int = 7, api_key:str=None):
+     #   end_date = datetime.now()
+     #   start_date = end_date - timedelta(days = days_back)
+        url = f"https://api.the-odds-api.com/v4/sports/{sport}/scores"
+        days_back = min(max(days_back,1),3)
+        params = {
+            'apiKey':api_key,
+            'daysFrom':days_back
+        }
+        response = requests.get(url, params = params)
+        response.raise_for_status()
+        completed_games = response.json()
+        updated_count = 0
+        print(f"\nUpdating...")
+        for game in completed_games:
+            if game.get('completed'):
+                home_team = game['home_team']
+                away_team = game['away_team']
+                scores = game.get('scores')
+                if scores and len(scores) >= 2:
+                    home_score = next((s['score'] for s in scores if s['name'] == home_team), None)
+                    away_score = next((s['score'] for s in scores if s['name']==away_team), None)
+                    if home_score is not None and away_score is not None:
+                        self.update_ratings(home_team, away_team, int(home_score), int(away_score))
+                        updated_count +=1
+                        print(f" {away_team} @ {home_team}: {away_score}-{home_score}")
+        if updated_count > 0:
+            self.save_ratings()
+        print("\nSuccess!")
+
+    def save_ratings(self,filepath:str = "elo_ratings.json"):
+        # save ratings to JSON file
+        data = {
+            "ratings":self.ratings,
+            "last_updated":datetime.datetime.now().isoformat(),
+            "k_factor" : self.k_factor,
+            "home_advantage":self.home_advantage
+        }
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+        print(f"Elo ratings successfully saved to {filepath}")
+
+    def load_ratings(self, filepath:str = "elo_ratings.json"):
+        if not os.path.exists(filepath):
+            print("No saved ratings found at this filepath")
+            return False
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            self.ratings = data["ratings"]
+            self.k_factor = data.get("k_factor", self.k_factor)
+            self.home_advantage = data.get("home_advantage", self.home_advantage)
+            last_updated = data.get("last_updated", "Unknown")
+            print(f"Loaded Elo Ratings (last updated: {last_updated})")
+            return True
+        except Exception as e:
+            print(f"error: {e}")
+            return False  
 
 class BettingAdvisor:
     """Main betting advisor class with AI analysis capabilities"""
@@ -125,28 +185,33 @@ class BettingAdvisor:
         # Initialize Elo system
         if self.use_elo:
             self.elo = EloRatingSystem(k_factor=20, home_advantage=65)
-            self._initialize_default_ratings()
+            if not self.elo.load_ratings():
+                self._initialize_default_ratings()
+                self.elo.save_ratings
+            else:
+                print("loading saved ratings")
+                self._initialize_default_ratings()
     
     def _initialize_default_ratings(self):
-        """Initialize ratings for common NFL teams (based on 2024 performance)"""
+        """Initialize ratings for common NBA teams (based on 2024 performance)"""
         # template, prolly use historical data for actual elo ratings later on in production
         nba_ratings = {
             "Oklahoma City Thunder":1750,
             "Denver Nuggets": 1690,
+            "Houston Rockets": 1670,
             "Detroit Pistons" : 1660,
-            "New York Knicks" : 1650,
+            "Los Angeles Lakers" : 1650,
             "Cleveland Cavaliers":1640,
             "San Antonio Spurs" : 1630,
-            "Houston Rockets" : 1620,
-            "Los Angeles Lakers" : 1610,
-            "Minnesota Timberwolves": 1600,
+            "Minnesota Timberwolves" : 1610,
+            "New York Knicks": 1600,
             "Miami Heat":1550,
-            "Milwaukee Bucks":1540,
+            "Atlanta Hawks":1540,
             "Chicago Bulls": 1530,
             "Philadelphia 76ers":1520,
             "Golden State Warriors":1510,
             "Portland Trail Blazers":1500,
-            "Atlanta Hawks":1490,
+            "Milwaukee Bucks":1490,
             "Toronto Raptors":1480,
             "Boston Celtics":1470,
             "Phoenix Suns":1460,
@@ -609,6 +674,12 @@ def main():
     print(f"Elo ratings: {'Enabled' if use_elo else 'Disabled'}")
     
     if use_elo:
+        print("\nUpdating Elo ratings from recent games...")
+        advisor.elo.update_elo_from_recent(
+            sport = "basketball_nba",
+            days_back = 7,
+            api_key = "ef3bb5fc3d4f3207ee38ae1987ab43cf"
+        )
         print("\nTop teams by Elo rating:")
         for i, (team, rating) in enumerate(advisor.elo.get_top_teams(5), 1):
             print(f"  {i}. {team}: {rating:.0f}")
