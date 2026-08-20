@@ -3,3 +3,12 @@ The user can analyze upcoming NBA games using statistical models and sportsbooks
 Built using Python, with statistical modeling and API integration for real-time data retrieval and persistent storage.
 
 The goal of the project is to explore quantitative sports analytics and automate data-driven decision-making for professional basketball analysis.
+
+## Setup
+
+Install dependencies with `pip install -r requirements.txt`. To use live Odds
+API data, set `ODDS_API_KEY` in your environment (see `.env.example`); without
+it, the app uses mock odds and skips Elo updates. API keys are intentionally
+never stored in source code.
+
+Run the automated checks with `python -m unittest test_analysis.py`.

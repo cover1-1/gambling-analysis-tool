@@ -1,12 +1,15 @@
 import json
 import requests
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 import statistics
 import math
 from ollama import chat, ChatResponse
+from dotenv import load_dotenv
 import datetime
 import os
+
+load_dotenv()
 
 @dataclass
 class Bet:
@@ -38,6 +41,7 @@ class EloRatingSystem:
         self.home_advantage = home_advantage
         self.ratings = {}  # team_name -> rating
         self.default_rating = 1500
+        self.processed_game_ids: Set[str] = set()
         
     def get_rating(self, team: str) -> float:
         """Get team's current Elo rating"""
@@ -115,22 +119,40 @@ class EloRatingSystem:
         """Get top N teams by rating"""
         sorted_teams = sorted(self.ratings.items(), key=lambda x: x[1], reverse=True)
         return sorted_teams[:n]
-    def update_elo_from_recent(self, sport: str="basketball_nba", days_back: int = 7, api_key:str=None):
-     #   end_date = datetime.now()
-     #   start_date = end_date - timedelta(days = days_back)
+    def update_elo_from_recent(self, sport: str = "basketball_nba", days_back: int = 3,
+                               api_key: Optional[str] = None) -> int:
+        """Apply newly completed games returned by The Odds API.
+
+        The Scores API supports at most three days of historical results. Event
+        IDs are persisted so refreshing the same window cannot double-count a
+        game.
+        """
+        api_key = api_key or os.environ.get("ODDS_API_KEY")
+        if not api_key:
+            print("Skipping Elo update: set ODDS_API_KEY to fetch completed games.")
+            return 0
+
         url = f"https://api.the-odds-api.com/v4/sports/{sport}/scores"
-        days_back = min(max(days_back,1),3)
+        days_back = min(max(days_back, 1), 3)
         params = {
-            'apiKey':api_key,
-            'daysFrom':days_back
+            'apiKey': api_key,
+            'daysFrom': days_back
         }
-        response = requests.get(url, params = params)
-        response.raise_for_status()
+        try:
+            response = requests.get(url, params=params, timeout=15)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as error:
+            print(f"Unable to update Elo ratings: {error}")
+            return 0
         completed_games = response.json()
         updated_count = 0
         print(f"\nUpdating...")
         for game in completed_games:
-            if game.get('completed'):
+            game_id = game.get("id")
+            if game.get('completed') and not game_id:
+                print("Skipping completed game with no event ID.")
+                continue
+            if game.get('completed') and game_id not in self.processed_game_ids:
                 home_team = game['home_team']
                 away_team = game['away_team']
                 scores = game.get('scores')
@@ -139,11 +161,13 @@ class EloRatingSystem:
                     away_score = next((s['score'] for s in scores if s['name']==away_team), None)
                     if home_score is not None and away_score is not None:
                         self.update_ratings(home_team, away_team, int(home_score), int(away_score))
+                        self.processed_game_ids.add(game_id)
                         updated_count +=1
                         print(f" {away_team} @ {home_team}: {away_score}-{home_score}")
         if updated_count > 0:
             self.save_ratings()
-        print("\nSuccess!")
+        print(f"\nUpdated {updated_count} game(s).")
+        return updated_count
 
     def save_ratings(self,filepath:str = "elo_ratings.json"):
         # save ratings to JSON file
@@ -151,7 +175,8 @@ class EloRatingSystem:
             "ratings":self.ratings,
             "last_updated":datetime.datetime.now().isoformat(),
             "k_factor" : self.k_factor,
-            "home_advantage":self.home_advantage
+            "home_advantage":self.home_advantage,
+            "processed_game_ids": sorted(self.processed_game_ids)
         }
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
@@ -167,6 +192,7 @@ class EloRatingSystem:
             self.ratings = data["ratings"]
             self.k_factor = data.get("k_factor", self.k_factor)
             self.home_advantage = data.get("home_advantage", self.home_advantage)
+            self.processed_game_ids = set(data.get("processed_game_ids", []))
             last_updated = data.get("last_updated", "Unknown")
             print(f"Loaded Elo Ratings (last updated: {last_updated})")
             return True
@@ -187,10 +213,9 @@ class BettingAdvisor:
             self.elo = EloRatingSystem(k_factor=20, home_advantage=65)
             if not self.elo.load_ratings():
                 self._initialize_default_ratings()
-                self.elo.save_ratings
+                self.elo.save_ratings()
             else:
                 print("loading saved ratings")
-                self._initialize_default_ratings()
     
     def _initialize_default_ratings(self):
         """Initialize ratings for common NBA teams (based on 2024 performance)"""
@@ -231,6 +256,14 @@ class BettingAdvisor:
         
         for team, rating in nba_ratings.items():
             self.elo.initialize_team(team, rating)
+
+    @staticmethod
+    def _mock_games() -> List[Game]:
+        """Return demonstration games when live odds are unavailable."""
+        return [
+            Game("NFL", "Kansas City Chiefs", "Buffalo Bills", "nfl_001", "2025-11-10T18:00:00Z"),
+            Game("NFL", "San Francisco 49ers", "Dallas Cowboys", "nfl_002", "2025-11-10T20:00:00Z"),
+        ]
         
     def american_to_decimal(self, american_odds: int) -> float:
         """Convert American odds to decimal odds"""
@@ -263,9 +296,9 @@ class BettingAdvisor:
         ev = (win_prob * win_amount) - ((1 - win_prob) * loss_amount)
         return ev
     
-    def fetch_odds_api(self, sport: str = "basketball_nba", 
-                       regions: str = "us", markets: str = "h2h,spreads", 
-                       api_key: str = "ef3bb5fc3d4f3207ee38ae1987ab43cf") -> List[Game]:
+    def fetch_odds_api(self, sport: str = "basketball_nba",
+                       regions: str = "us", markets: str = "h2h,spreads",
+                       api_key: Optional[str] = None) -> List[Game]:
         """
         Fetch odds from The Odds API 
 
@@ -289,23 +322,7 @@ class BettingAdvisor:
             print("  2. Set environment variable: export ODDS_API_KEY='your_key_here'")
             print("  3. Or pass api_key parameter to this function\n")
             
-            mock_games = [
-                Game(
-                    sport="NFL",
-                    home_team="Kansas City Chiefs",
-                    away_team="Buffalo Bills",
-                    game_id="nfl_001",
-                    commence_time="2025-11-10T18:00:00Z"
-                ),
-                Game(
-                    sport="NFL",
-                    home_team="San Francisco 49ers",
-                    away_team="Dallas Cowboys",
-                    game_id="nfl_002",
-                    commence_time="2025-11-10T20:00:00Z"
-                )
-            ]
-            return mock_games
+            return self._mock_games()
         
         # Real API call
         try:
@@ -317,7 +334,7 @@ class BettingAdvisor:
                 'oddsFormat': 'decimal'
             }
             
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=15)
             response.raise_for_status()
             
             data = response.json()
@@ -341,7 +358,7 @@ class BettingAdvisor:
         except requests.exceptions.RequestException as e:
             print(f"Error fetching from API: {e}")
             print("Falling back to mock data...\n")
-            return self.fetch_odds_api(sport=sport, api_key=None)  # Fallback to mock
+            return self._mock_games()
     
     def get_mock_odds(self, game: Game, api_key: str = None) -> List[Bet]:
         """
@@ -365,7 +382,7 @@ class BettingAdvisor:
                     'eventIds': game.game_id
                 }
                 
-                response = requests.get(url, params=params)
+                response = requests.get(url, params=params, timeout=15)
                 response.raise_for_status()
                 
                 data = response.json()
@@ -677,8 +694,7 @@ def main():
         print("\nUpdating Elo ratings from recent games...")
         advisor.elo.update_elo_from_recent(
             sport = "basketball_nba",
-            days_back = 7,
-            api_key = "ef3bb5fc3d4f3207ee38ae1987ab43cf"
+            days_back = 3
         )
         print("\nTop teams by Elo rating:")
         for i, (team, rating) in enumerate(advisor.elo.get_top_teams(5), 1):
@@ -687,8 +703,7 @@ def main():
     print("\nFetching games...")
     
     # Fetch games
-    games = advisor.fetch_odds_api(sport="basketball_nba",
-                                   api_key="ef3bb5fc3d4f3207ee38ae1987ab43cf")
+    games = advisor.fetch_odds_api(sport="basketball_nba")
     
     print(f"\nFound {len(games)} games:\n")
     for i, game in enumerate(games, 1):
