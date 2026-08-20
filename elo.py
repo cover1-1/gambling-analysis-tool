@@ -14,7 +14,7 @@ def new_season_elo(elo):
     return (0.75*elo) + (0.25*1505)
 class EloRatingSystemExtensions:
     # additional methods to add to EloRatingSystem class in analysis.py
-    def update_elo(self, sport: str="basketball_nba", days_back: int = 7, api_key:str=None):
+    def update_elo(self, sport: str="basketball_nba", days_back: int = 7, api_key:str="ef3bb5fc3d4f3207ee38ae1987ab43cf"):
         end_date = datetime.now()
         start_date = end_date - timedelta(days = days_back)
         url = f"https://api.the-odds-api.com/v4/sports/{sport}/scores"
@@ -71,3 +71,6 @@ class EloRatingSystemExtensions:
         except Exception as e:
             print(f"error: {e}")
             return False    
+        
+
+
